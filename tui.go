@@ -17,12 +17,6 @@ const (
 
 var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render
 
-func finalPause(m model) tea.Cmd {
-	return tea.Tick(time.Millisecond*500, func(_ time.Time) tea.Msg {
-		return nil
-	})
-}
-
 type mergerMsg string
 
 type progressUpdate float64
@@ -66,7 +60,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mergerMsg:
 		m.stopwatch.Stop()
 		m.completed = true
-		return m, tea.Sequence(finalPause(m), tea.Quit)
+		return m, tea.Sequence(finalPause(), tea.Quit)
 
 	// FrameMsg is sent when the progress bar wants to animate itself
 	case progress.FrameMsg:
@@ -99,4 +93,10 @@ func (m model) View() string {
 		pad + m.progress.View() + "\n\n" +
 		pad + s + "\n" +
 		pad + helpStyle("Press any key to quit")
+}
+
+func finalPause() tea.Cmd {
+	return tea.Tick(time.Millisecond*500, func(_ time.Time) tea.Msg {
+		return nil
+	})
 }
