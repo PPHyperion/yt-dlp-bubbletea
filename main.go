@@ -1,86 +1,98 @@
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
-const (
-	padding  = 2
-	maxWidth = 80
-)
+var program *tea.Program
 
-var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render
+type progressWriter struct {
+	title      string
+	downloaded int
+	reader     io.ReadCloser
+	onProgress func(float64)
+	onFinish   func(string)
+	command    exec.Cmd
+}
 
 func main() {
+	url := flag.String("url", "", "url or id of the video to download")
+	flag.Parse()
+
+	if *url == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	cmdName := "yt-dlp --no-colors --newline " + *url
+	cmdArgs := strings.Fields(cmdName)
+
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	stdout, _ := cmd.StdoutPipe()
+
+	pw := &progressWriter{
+		reader: stdout,
+		onProgress: func(progress float64) {
+			program.Send(progressUpdate(progress))
+		},
+		onFinish: func(message string) {
+			program.Send(mergerMsg(message))
+		},
+		command:    *cmd,
+		downloaded: 0,
+	}
+
 	m := model{
+		pw:       pw,
 		progress: progress.New(progress.WithDefaultGradient()),
 	}
 
-	if _, err := tea.NewProgram(m).Run(); err != nil {
-		fmt.Println("Oh no!", err)
+	program = tea.NewProgram(m)
+
+	go pw.Start()
+
+	if _, err := program.Run(); err != nil {
+		fmt.Println("error running program:", err)
 		os.Exit(1)
 	}
 }
 
-type tickMsg time.Time
+func (pw *progressWriter) Start() {
+	pw.command.Start()
 
-type model struct {
-	progress progress.Model
-}
+	reader := bufio.NewReader(pw.reader)
 
-func (m model) Init() tea.Cmd {
-	return tickCmd()
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		return m, tea.Quit
-
-	case tea.WindowSizeMsg:
-		m.progress.Width = msg.Width - padding*2 - 4
-		if m.progress.Width > maxWidth {
-			m.progress.Width = maxWidth
-		}
-		return m, nil
-
-	case tickMsg:
-		if m.progress.Percent() == 1.0 {
-			return m, tea.Quit
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
 		}
 
-		// Note that you can also use progress.Model.SetPercent to set the
-		// percentage value explicitly, too.
-		cmd := m.progress.IncrPercent(0.10)
-		return m, tea.Batch(tickCmd(), cmd)
-
-	// FrameMsg is sent when the progress bar wants to animate itself
-	case progress.FrameMsg:
-		progressModel, cmd := m.progress.Update(msg)
-		m.progress = progressModel.(progress.Model)
-		return m, cmd
-
-	default:
-		return m, nil
+		if strings.Contains(line, "%") {
+			progress := getProgress(line)
+			pw.onProgress(float64(progress))
+		} else if strings.Contains(line, "[Merger]") {
+			pw.onProgress(float64(100))
+			pw.onFinish("Download finished, begin merge")
+			pw.downloaded = 1
+		}
 	}
 }
 
-func (m model) View() string {
-	pad := strings.Repeat(" ", padding)
-	return "\n" +
-		pad + m.progress.View() + "\n\n" +
-		pad + helpStyle("Press any key to quit")
-}
-
-func tickCmd() tea.Cmd {
-	return tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
+func getProgress(text string) float64 {
+	regex, _ := regexp.Compile(`(\d{1,3}.\d{0,1})%`)
+	result := regex.FindStringSubmatch(text)
+	value, _ := strconv.ParseFloat(result[1], 64)
+	return value / 100
 }
