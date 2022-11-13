@@ -10,8 +10,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/stopwatch"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -54,8 +56,9 @@ func main() {
 	}
 
 	m := model{
-		pw:       pw,
-		progress: progress.New(progress.WithDefaultGradient()),
+		pw:        pw,
+		progress:  progress.New(progress.WithDefaultGradient()),
+		stopwatch: stopwatch.NewWithInterval(time.Millisecond),
 	}
 
 	program = tea.NewProgram(m)

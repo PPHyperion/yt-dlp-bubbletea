@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/stopwatch"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -16,7 +17,7 @@ const (
 
 var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render
 
-func finalPause() tea.Cmd {
+func finalPause(m model) tea.Cmd {
 	return tea.Tick(time.Millisecond*500, func(_ time.Time) tea.Msg {
 		return nil
 	})
@@ -29,13 +30,15 @@ type progressUpdate float64
 type progressErrMsg struct{ err error }
 
 type model struct {
-	pw       *progressWriter
-	progress progress.Model
-	err      error
+	pw        *progressWriter
+	progress  progress.Model
+	err       error
+	stopwatch stopwatch.Model
+	completed bool
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return m.stopwatch.Init()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -61,7 +64,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case mergerMsg:
-		return m, tea.Sequence(finalPause(), tea.Quit)
+		m.stopwatch.Stop()
+		m.completed = true
+		return m, tea.Sequence(finalPause(m), tea.Quit)
 
 	// FrameMsg is sent when the progress bar wants to animate itself
 	case progress.FrameMsg:
@@ -70,13 +75,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	default:
-		return m, nil
+		var cmd tea.Cmd
+		m.stopwatch, cmd = m.stopwatch.Update(msg)
+		return m, cmd
 	}
 }
 
 func (m model) View() string {
 	pad := strings.Repeat(" ", padding)
+
+	s := m.stopwatch.View() + "\n"
+	if !m.completed {
+		s = "Elapsed: " + s
+	} else {
+		var style = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#73F59C"))
+
+		s = style.Render("Finished in " + s)
+	}
+
 	return "\n" +
 		pad + m.progress.View() + "\n\n" +
+		pad + s + "\n" +
 		pad + helpStyle("Press any key to quit")
 }
